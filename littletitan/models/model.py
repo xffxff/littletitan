@@ -27,6 +27,7 @@ class ModelArgs:
     moe_num_experts: int = 8
     moe_top_k: int = 2
     moe_expert_dim: int = 1024
+    moe_num_shared_experts: int = 2
 
 
 class TopKRouter(nn.Module):
@@ -161,17 +162,20 @@ class MoELayer(nn.Module):
         self.router = TopKRouter(dim, num_experts, top_k)
         self.dispatcher = TokenDispatcher(top_k)
         self.experts = Experts(dim, moe_expert_dim, num_experts, model_args.multiple_of)
+        self.shared_experts = FeedForward(dim, model_args.moe_num_shared_experts * moe_expert_dim, model_args.multiple_of)
 
     def forward(self, x: torch.Tensor):
         scores, top_k_indices, tokens_per_expert = self.router(x)
         permuted_tokens = self.dispatcher.token_permutation(x, top_k_indices)
         expert_outputs = self.experts(permuted_tokens, tokens_per_expert)
-        return self.dispatcher.token_unpermutation(expert_outputs, scores)
+        expert_outputs = self.dispatcher.token_unpermutation(expert_outputs, scores)
+        shared_expert_outputs = self.shared_experts(x)
+        return expert_outputs + shared_expert_outputs
 
     def init_weights(self, init_std: float):
         self.router.init_weights(init_std)
         self.experts.init_weights(init_std)
-
+        self.shared_experts.init_weights(init_std)
 
 class TransformerBlock(nn.Module):
     """
