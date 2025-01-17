@@ -28,6 +28,7 @@ from littletitan.parallelisms import (
 )
 from torchtitan.profiling import maybe_enable_memory_snapshot, maybe_enable_profiling
 from torchtitan.utils import device_module, device_type
+from littletitan.utils import get_activated_params
 
 
 # Enable debug tracing on failure: https://pytorch.org/docs/stable/elastic/errors.html
@@ -117,14 +118,16 @@ def main(job_config: JobConfig):
 
     # log model size
     model_param_count = utils.get_num_params(model)
+    model_activated_param_count = get_activated_params(model, model_config)
     num_flop_per_token = utils.get_num_flop_per_token(
-        utils.get_num_params(model, exclude_embedding=True),
+        get_activated_params(model, model_config, exclude_embedding=True),
         model_config,
         job_config.training.seq_len,
     )
     logger.info(
         f"{color.blue}Model {model_name} {job_config.model.flavor} "
-        f"{color.red}size: {model_param_count:,} total parameters{color.reset}"
+        f"{color.red}size: {model_param_count:,} total parameters, "
+        f"{color.green}{model_activated_param_count:,} activated parameters{color.reset}"
     )
 
     # loss function to be shared by Pipeline Parallel and SPMD training
