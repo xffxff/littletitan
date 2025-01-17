@@ -1,8 +1,9 @@
+from dataclasses import dataclass
+from typing import Optional
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from dataclasses import dataclass
-from typing import Optional
 from torchtitan.models.llama.model import Attention, build_norm, precompute_freqs_cis
 
 
@@ -162,7 +163,11 @@ class MoELayer(nn.Module):
         self.router = TopKRouter(dim, num_experts, top_k)
         self.dispatcher = TokenDispatcher(top_k)
         self.experts = Experts(dim, moe_expert_dim, num_experts, model_args.multiple_of)
-        self.shared_experts = FeedForward(dim, model_args.moe_num_shared_experts * moe_expert_dim, model_args.multiple_of)
+        self.shared_experts = FeedForward(
+            dim,
+            model_args.moe_num_shared_experts * moe_expert_dim,
+            model_args.multiple_of,
+        )
 
     def forward(self, x: torch.Tensor):
         scores, top_k_indices, tokens_per_expert = self.router(x)
@@ -176,6 +181,7 @@ class MoELayer(nn.Module):
         self.router.init_weights(init_std)
         self.experts.init_weights(init_std)
         self.shared_experts.init_weights(init_std)
+
 
 class TransformerBlock(nn.Module):
     """
@@ -243,7 +249,7 @@ class TransformerBlock(nn.Module):
             norm.reset_parameters()
         self.attention.init_weights(self.weight_init_std)
         self.feed_forward.init_weights(self.weight_init_std)
-    
+
 
 class Transformer(nn.Module):
     """

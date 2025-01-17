@@ -9,9 +9,7 @@ import time
 from datetime import timedelta
 
 import torch
-
 from torch.distributed.elastic.multiprocessing.errors import record
-
 from torchtitan import utils
 from torchtitan.checkpoint import CheckpointManager, TrainState
 from torchtitan.config_manager import JobConfig
@@ -19,16 +17,17 @@ from torchtitan.datasets import build_hf_data_loader, build_tokenizer
 from torchtitan.float8 import Float8Handler
 from torchtitan.logging import init_logger, logger
 from torchtitan.metrics import build_device_memory_monitor, build_metric_logger
-from littletitan.models import model_name_to_cls, model_name_to_tokenizer, models_config
 from torchtitan.optimizer import build_lr_schedulers, build_optimizers
-from littletitan.parallelisms import (
-    models_parallelize_fns,
-    models_pipelining_fns,
-    ParallelDims,
-)
 from torchtitan.profiling import maybe_enable_memory_snapshot, maybe_enable_profiling
 from torchtitan.utils import device_module, device_type
 from littletitan.utils import get_activated_params
+
+from littletitan.models import model_name_to_cls, model_name_to_tokenizer, models_config
+from littletitan.parallelisms import (
+    ParallelDims,
+    models_parallelize_fns,
+    models_pipelining_fns,
+)
 
 
 # Enable debug tracing on failure: https://pytorch.org/docs/stable/elastic/errors.html
@@ -248,11 +247,14 @@ def main(job_config: JobConfig):
         f"total steps {job_config.training.steps} "
         f"(warmup {job_config.training.warmup_steps})"
     )
-    with maybe_enable_profiling(
-        job_config, global_step=train_state.step
-    ) as torch_profiler, maybe_enable_memory_snapshot(
-        job_config, global_step=train_state.step
-    ) as memory_profiler:
+    with (
+        maybe_enable_profiling(
+            job_config, global_step=train_state.step
+        ) as torch_profiler,
+        maybe_enable_memory_snapshot(
+            job_config, global_step=train_state.step
+        ) as memory_profiler,
+    ):
         while train_state.step < job_config.training.steps:
             train_state.step += 1
             gc_handler.run(train_state.step)
