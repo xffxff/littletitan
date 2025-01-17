@@ -4,7 +4,7 @@ moe_configs = {
     "debugmodel": ModelArgs(dim=256, n_layers=8, n_heads=16, rope_theta=500000),
     "deepseek-moe-16b": ModelArgs(
         dim=2048,
-        n_layers=12,  # 28, set to 12 for local testing
+        n_layers=28,
         n_heads=16,
         n_kv_heads=16,
         multiple_of=128,

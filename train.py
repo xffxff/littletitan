@@ -20,7 +20,6 @@ from torchtitan.metrics import build_device_memory_monitor, build_metric_logger
 from torchtitan.optimizer import build_lr_schedulers, build_optimizers
 from torchtitan.profiling import maybe_enable_memory_snapshot, maybe_enable_profiling
 from torchtitan.utils import device_module, device_type
-from littletitan.utils import get_activated_params
 
 from littletitan.models import model_name_to_cls, model_name_to_tokenizer, models_config
 from littletitan.parallelisms import (
@@ -28,6 +27,7 @@ from littletitan.parallelisms import (
     models_parallelize_fns,
     models_pipelining_fns,
 )
+from littletitan.utils import get_activated_params
 
 
 # Enable debug tracing on failure: https://pytorch.org/docs/stable/elastic/errors.html
