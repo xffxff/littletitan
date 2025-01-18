@@ -135,21 +135,26 @@ class Experts(nn.Module):
         self, dim: int, moe_expert_dim: int, num_experts: int, multiple_of: int
     ):
         super().__init__()
-        self.experts = nn.ModuleList(
-            [FeedForward(dim, moe_expert_dim, multiple_of) for _ in range(num_experts)]
-        )
+        self.gate_proj = nn.Parameter(torch.empty(num_experts, dim, moe_expert_dim))
+        self.up_proj = nn.Parameter(torch.empty(num_experts, dim, moe_expert_dim))
+        self.down_proj = nn.Parameter(torch.empty(num_experts, moe_expert_dim, dim))
 
     def forward(self, x: torch.Tensor, tokens_per_expert: torch.Tensor):
         tokens_per_expert = tokens_per_expert.tolist()
         tokens_list = torch.split(x, tokens_per_expert, dim=0)
-        expert_outputs = [
-            expert(tokens) for expert, tokens in zip(self.experts, tokens_list)
-        ]
-        return torch.cat(expert_outputs, dim=0)
+
+        outputs = []
+        for i in range(len(tokens_list)):
+            gate = torch.mm(tokens_list[i], self.gate_proj[i])
+            up = torch.mm(tokens_list[i], self.up_proj[i])
+            out = torch.mm(F.silu(gate) * up, self.down_proj[i])
+            outputs.append(out)
+        return torch.cat(outputs, dim=0)
 
     def init_weights(self, init_std: float):
-        for expert in self.experts:
-            expert.init_weights(init_std)
+        nn.init.trunc_normal_(self.gate_proj, mean=0.0, std=init_std)
+        nn.init.trunc_normal_(self.up_proj, mean=0.0, std=init_std)
+        nn.init.trunc_normal_(self.down_proj, mean=0.0, std=init_std)
 
 
 class MoELayer(nn.Module):
@@ -162,7 +167,9 @@ class MoELayer(nn.Module):
 
         self.router = TopKRouter(dim, num_experts, top_k)
         self.dispatcher = TokenDispatcher(top_k)
-        self.experts = Experts(dim, moe_expert_dim, num_experts, model_args.multiple_of)
+        self.sparse_experts = Experts(
+            dim, moe_expert_dim, num_experts, model_args.multiple_of
+        )
         self.shared_experts = FeedForward(
             dim,
             model_args.moe_num_shared_experts * moe_expert_dim,
@@ -172,14 +179,14 @@ class MoELayer(nn.Module):
     def forward(self, x: torch.Tensor):
         scores, top_k_indices, tokens_per_expert = self.router(x)
         permuted_tokens = self.dispatcher.token_permutation(x, top_k_indices)
-        expert_outputs = self.experts(permuted_tokens, tokens_per_expert)
+        expert_outputs = self.sparse_experts(permuted_tokens, tokens_per_expert)
         expert_outputs = self.dispatcher.token_unpermutation(expert_outputs, scores)
         shared_expert_outputs = self.shared_experts(x)
         return expert_outputs + shared_expert_outputs
 
     def init_weights(self, init_std: float):
         self.router.init_weights(init_std)
-        self.experts.init_weights(init_std)
+        self.sparse_experts.init_weights(init_std)
         self.shared_experts.init_weights(init_std)
 
 
