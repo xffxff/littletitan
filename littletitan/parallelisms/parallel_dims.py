@@ -61,9 +61,9 @@ class ParallelDims:
                 self.cp,
                 self.tp,
             ],
-            ["pp", "dp_replicate", "dp_shard_for_experts", "ep", "cp", "tp"],
+            ["pp", "dp_replicate", "expert_dp_shard", "ep", "cp", "tp"],
         ):
-            if d > 1:
+            if d > 1 or name == "expert_dp_shard":
                 dims.append(d)
                 names.append(name)
 
@@ -78,7 +78,7 @@ class ParallelDims:
         if self.dp_replicate_enabled:
             dp_mesh_dim_names.append("dp_replicate")
         if self.dp_shard_enabled:
-            dp_mesh_dim_names.append("dp_shard_for_experts")
+            dp_mesh_dim_names.append("expert_dp_shard")
         if self.ep_enabled:
             dp_mesh_dim_names.append("ep")
         if dp_mesh_dim_names != []:
@@ -87,7 +87,7 @@ class ParallelDims:
         # Mesh for param sharding
         dp_shard_cp_mesh_dim_names = []
         if self.dp_shard_enabled:
-            dp_shard_cp_mesh_dim_names.append("dp_shard_for_experts")
+            dp_shard_cp_mesh_dim_names.append("expert_dp_shard")
         if self.ep_enabled:
             dp_shard_cp_mesh_dim_names.append("ep")
         if self.cp_enabled:
@@ -102,7 +102,7 @@ class ParallelDims:
         if self.dp_replicate_enabled:
             dp_cp_mesh_dim_names.append("dp_replicate")
         if self.dp_shard_enabled:
-            dp_cp_mesh_dim_names.append("dp_shard_for_experts")
+            dp_cp_mesh_dim_names.append("expert_dp_shard")
         if self.ep_enabled:
             dp_cp_mesh_dim_names.append("ep")
         if self.cp_enabled:
@@ -122,7 +122,7 @@ class ParallelDims:
 
     @property
     def dp_shard_enabled(self):
-        return self.dp_shard > 1
+        return self.dp_shard > 1 or self.ep > 1
 
     @property
     def cp_enabled(self):
