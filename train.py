@@ -53,6 +53,7 @@ def main(job_config: JobConfig):
         cp=job_config.experimental.context_parallel_degree,
         tp=job_config.training.tensor_parallel_degree,
         pp=job_config.experimental.pipeline_parallel_degree,
+        ep=1,
         world_size=world_size,
         enable_loss_parallel=not job_config.training.disable_loss_parallel,
     )

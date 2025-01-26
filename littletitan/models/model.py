@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torchtitan.models.llama.model import Attention, build_norm, precompute_freqs_cis
+from littletitan.models.token_dispatcher import TokenDispatcher
 
 
 @dataclass
@@ -42,53 +43,12 @@ class TopKRouter(nn.Module):
 
     def forward(self, x):
         logits = self.gate(x)
-        logits = logits.view(-1, self.num_experts)
         top_k_values, top_k_indices = torch.topk(logits, self.top_k, dim=-1)
         scores = torch.softmax(top_k_values, dim=-1, dtype=torch.float32).type_as(x)
-        tokens_per_expert = torch.bincount(
-            top_k_indices.view(-1), minlength=self.num_experts
-        )
-        return scores, top_k_indices, tokens_per_expert
+        return scores, top_k_indices
 
     def init_weights(self, init_std: float):
         nn.init.trunc_normal_(self.gate.weight, mean=0.0, std=init_std)
-
-
-class TokenDispatcher:
-    def __init__(self, top_k: int):
-        self.top_k = top_k
-        self.hidden_state_shape = None
-        self.reversed_input_permutation_mapping = None
-
-    def token_permutation(self, x: torch.Tensor, indices: torch.Tensor):
-        self.hidden_state_shape = x.shape
-        x = x.view(-1, x.size(-1))
-        flatten_indices = indices.flatten()
-        sorted_indices = torch.argsort(flatten_indices, stable=True)
-        permuted_tokens = x.index_select(0, sorted_indices // self.top_k)
-        self.reversed_input_permutation_mapping = sorted_indices
-        return permuted_tokens
-
-    def token_unpermutation(
-        self, permuted_tokens: torch.Tensor, scores: torch.Tensor
-    ) -> torch.Tensor:
-        num_unpermuted_tokens = scores.numel()
-        unpermuted_tokens = torch.zeros(
-            (num_unpermuted_tokens, permuted_tokens.size(1)),
-            dtype=permuted_tokens.dtype,
-            device=permuted_tokens.device,
-        )
-        unpermuted_tokens.index_copy_(
-            0, self.reversed_input_permutation_mapping, permuted_tokens
-        )
-        unpermuted_tokens = unpermuted_tokens.reshape(
-            -1, self.top_k, permuted_tokens.size(1)
-        )
-
-        unpermuted_tokens = unpermuted_tokens * scores.unsqueeze(-1)
-        unpermuted_tokens = unpermuted_tokens.sum(dim=1).type_as(permuted_tokens)
-        output = unpermuted_tokens.view(self.hidden_state_shape)
-        return output
 
 
 class FeedForward(nn.Module):
@@ -135,34 +95,41 @@ class Experts(nn.Module):
         self, dim: int, moe_expert_dim: int, num_experts: int, multiple_of: int
     ):
         super().__init__()
-        self.experts = nn.ModuleList(
-            [FeedForward(dim, moe_expert_dim, multiple_of) for _ in range(num_experts)]
-        )
+        self.gate_proj = nn.Parameter(torch.empty(num_experts, dim, moe_expert_dim))
+        self.up_proj = nn.Parameter(torch.empty(num_experts, dim, moe_expert_dim))
+        self.down_proj = nn.Parameter(torch.empty(num_experts, moe_expert_dim, dim))
 
     def forward(self, x: torch.Tensor, tokens_per_expert: torch.Tensor):
         tokens_per_expert = tokens_per_expert.tolist()
         tokens_list = torch.split(x, tokens_per_expert, dim=0)
-        expert_outputs = [
-            expert(tokens) for expert, tokens in zip(self.experts, tokens_list)
-        ]
-        return torch.cat(expert_outputs, dim=0)
+
+        outputs = []
+        for i in range(len(tokens_list)):
+            gate = torch.mm(tokens_list[i], self.gate_proj[i])
+            up = torch.mm(tokens_list[i], self.up_proj[i])
+            out = torch.mm(F.silu(gate) * up, self.down_proj[i])
+            outputs.append(out)
+        return torch.cat(outputs, dim=0)
 
     def init_weights(self, init_std: float):
-        for expert in self.experts:
-            expert.init_weights(init_std)
+        nn.init.trunc_normal_(self.gate_proj, mean=0.0, std=init_std)
+        nn.init.trunc_normal_(self.up_proj, mean=0.0, std=init_std)
+        nn.init.trunc_normal_(self.down_proj, mean=0.0, std=init_std)
 
 
 class MoELayer(nn.Module):
     def __init__(self, model_args: ModelArgs):
         super().__init__()
         dim = model_args.dim
-        num_experts = model_args.moe_num_experts
-        top_k = model_args.moe_top_k
+        self.num_experts = model_args.moe_num_experts
+        self.top_k = model_args.moe_top_k
         moe_expert_dim = model_args.moe_expert_dim
 
-        self.router = TopKRouter(dim, num_experts, top_k)
-        self.dispatcher = TokenDispatcher(top_k)
-        self.experts = Experts(dim, moe_expert_dim, num_experts, model_args.multiple_of)
+        self.router = TopKRouter(dim, self.num_experts, self.top_k)
+        self.dispatcher = TokenDispatcher(self.top_k, self.num_experts)
+        self.sparse_experts = Experts(
+            dim, moe_expert_dim, self.num_experts, model_args.multiple_of
+        )
         self.shared_experts = FeedForward(
             dim,
             model_args.moe_num_shared_experts * moe_expert_dim,
@@ -170,16 +137,16 @@ class MoELayer(nn.Module):
         )
 
     def forward(self, x: torch.Tensor):
-        scores, top_k_indices, tokens_per_expert = self.router(x)
-        permuted_tokens = self.dispatcher.token_permutation(x, top_k_indices)
-        expert_outputs = self.experts(permuted_tokens, tokens_per_expert)
-        expert_outputs = self.dispatcher.token_unpermutation(expert_outputs, scores)
+        scores, top_k_indices = self.router(x)
+        permuted_tokens, tokens_per_expert = self.dispatcher.dispatch(x, top_k_indices)
+        expert_outputs = self.sparse_experts(permuted_tokens, tokens_per_expert)
+        expert_outputs = self.dispatcher.combine(expert_outputs, scores)
         shared_expert_outputs = self.shared_experts(x)
         return expert_outputs + shared_expert_outputs
 
     def init_weights(self, init_std: float):
         self.router.init_weights(init_std)
-        self.experts.init_weights(init_std)
+        self.sparse_experts.init_weights(init_std)
         self.shared_experts.init_weights(init_std)
 
 
