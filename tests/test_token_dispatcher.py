@@ -1,6 +1,7 @@
-from littletitan.models.token_dispatcher import TokenDispatcher
 import pytest
 import torch
+
+from littletitan.models.token_dispatcher import TokenDispatcher
 
 
 def test_token_dispatcher_basic():
