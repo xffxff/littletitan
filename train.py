@@ -17,11 +17,12 @@ from torchtitan.datasets import build_hf_data_loader, build_tokenizer
 from torchtitan.float8 import Float8Handler
 from torchtitan.logging import init_logger, logger
 from torchtitan.metrics import build_device_memory_monitor, build_metric_logger
-from torchtitan.optimizer import build_lr_schedulers, build_optimizers
+from torchtitan.optimizer import build_lr_schedulers
 from torchtitan.profiling import maybe_enable_memory_snapshot, maybe_enable_profiling
 from torchtitan.utils import device_module, device_type
 
 from littletitan.models import model_name_to_cls, model_name_to_tokenizer, models_config
+from littletitan.optimizer import build_optimizers
 from littletitan.parallelisms import (
     ParallelDims,
     models_parallelize_fns,
@@ -53,7 +54,7 @@ def main(job_config: JobConfig):
         cp=job_config.experimental.context_parallel_degree,
         tp=job_config.training.tensor_parallel_degree,
         pp=job_config.experimental.pipeline_parallel_degree,
-        ep=1,
+        ep=2,
         world_size=world_size,
         enable_loss_parallel=not job_config.training.disable_loss_parallel,
     )
@@ -314,12 +315,12 @@ def main(job_config: JobConfig):
                     loss.backward()
 
             # clip gradients
-            utils.clip_grad_norm_(
-                [p for m in model_parts for p in m.parameters()],
-                job_config.training.max_norm,
-                foreach=True,
-                pp_mesh=pp_mesh if parallel_dims.pp_enabled else None,
-            )
+            # utils.clip_grad_norm_(
+            #     [p for m in model_parts for p in m.parameters()],
+            #     job_config.training.max_norm,
+            #     foreach=True,
+            #     pp_mesh=pp_mesh if parallel_dims.pp_enabled else None,
+            # )
 
             # sync float8 amaxes and scales
             float8_handler.sync_float8_amax_and_scale_history(model_parts)

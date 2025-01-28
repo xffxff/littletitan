@@ -1,9 +1,11 @@
+import os
+from datetime import timedelta
+
 import pytest
 import torch
 from torch.distributed.device_mesh import init_device_mesh
+
 from littletitan.models.token_dispatcher import EPTokenDispatcher
-from datetime import timedelta
-import os
 
 
 def test_ep_token_dispatcher_basic():

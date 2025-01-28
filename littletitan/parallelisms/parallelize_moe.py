@@ -1,19 +1,19 @@
+from typing import Optional
+
+import torch
 import torch.nn as nn
 from torch.distributed import DeviceMesh
+from torch.distributed._composable.fsdp import (
+    CPUOffloadPolicy,
+    MixedPrecisionPolicy,
+    fully_shard,
+)
+from torch.distributed.tensor import Shard, distribute_tensor
+from torch.distributed.tensor.parallel import parallelize_module
 from torchtitan.config_manager import TORCH_DTYPE_MAP, JobConfig
 from torchtitan.logging import logger
 from torchtitan.parallelisms.parallel_dims import ParallelDims
 from torchtitan.parallelisms.parallelize_llama import apply_ac, apply_ddp
-from typing import Optional
-from torch.distributed.tensor.parallel import parallelize_module
-import torch
-
-from torch.distributed.tensor import distribute_tensor, Shard
-from torch.distributed._composable.fsdp import (
-    CPUOffloadPolicy,
-    fully_shard,
-    MixedPrecisionPolicy,
-)
 
 
 def parallelize_moe(
@@ -85,8 +85,8 @@ def parallelize_moe(
 
 
 def apply_ep(model: nn.Module, ep_mesh: Optional[DeviceMesh] = None):
-    from littletitan.models.token_dispatcher import EPTokenDispatcher
     from littletitan.models.model import MoELayer
+    from littletitan.models.token_dispatcher import EPTokenDispatcher
 
     assert ep_mesh is not None
 
