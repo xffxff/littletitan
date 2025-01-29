@@ -1,4 +1,3 @@
-import pytest
 import torch
 
 from littletitan.models.token_dispatcher import TokenDispatcher
