@@ -31,6 +31,7 @@ def parallelize_moe(
 
     if parallel_dims.ep_enabled:
         apply_ep(model, world_mesh["ep"])
+        logger.info("Applied EP to the model")
 
     if job_config.activation_checkpoint.mode != "none":
         apply_ac(model, job_config.activation_checkpoint)

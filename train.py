@@ -12,7 +12,6 @@ import torch
 from torch.distributed.elastic.multiprocessing.errors import record
 from torchtitan import utils
 from torchtitan.checkpoint import CheckpointManager, TrainState
-from torchtitan.config_manager import JobConfig
 from torchtitan.datasets import build_hf_data_loader, build_tokenizer
 from torchtitan.float8 import Float8Handler
 from torchtitan.logging import init_logger, logger
@@ -21,6 +20,7 @@ from torchtitan.optimizer import build_lr_schedulers
 from torchtitan.profiling import maybe_enable_memory_snapshot, maybe_enable_profiling
 from torchtitan.utils import device_module, device_type
 
+from littletitan.config_manager import JobConfig
 from littletitan.models import model_name_to_cls, model_name_to_tokenizer, models_config
 from littletitan.optimizer import build_optimizers
 from littletitan.parallelisms import (
@@ -54,7 +54,7 @@ def main(job_config: JobConfig):
         cp=job_config.experimental.context_parallel_degree,
         tp=job_config.training.tensor_parallel_degree,
         pp=job_config.experimental.pipeline_parallel_degree,
-        ep=2,
+        ep=job_config.training.expert_parallel_degree,
         world_size=world_size,
         enable_loss_parallel=not job_config.training.disable_loss_parallel,
     )
