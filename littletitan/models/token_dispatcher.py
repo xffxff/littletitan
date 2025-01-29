@@ -71,57 +71,6 @@ class TokenDispatcher:
         return output
 
 
-class _AllToAll(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, group, input, output_split_sizes, input_split_sizes):
-        """Forward function."""
-        ctx.group = group
-        ctx.output_split_sizes = output_split_sizes
-        ctx.input_split_sizes = input_split_sizes
-
-        world_size = torch.distributed.get_world_size(group=group)
-        # Bypass the function if we are using only 1 GPU.
-        if world_size == 1:
-            return input
-
-        input = input.contiguous()
-        if output_split_sizes is None:
-            # Equal split (all2all)
-            output = torch.empty_like(input)
-        else:
-            # Unequal split (all2all-v)
-            output = input.new_empty(
-                size=[sum(output_split_sizes)] + list(input.size()[1:]),
-                dtype=input.dtype,
-                device=torch.cuda.current_device(),
-            )
-        torch.distributed.all_to_all_single(
-            output,
-            input,
-            output_split_sizes=output_split_sizes,
-            input_split_sizes=input_split_sizes,
-            group=group,
-        )
-        return output
-
-    @staticmethod
-    def backward(ctx, *grad_output):
-        """Backward function."""
-        return (
-            None,
-            _AllToAll.apply(
-                ctx.group, *grad_output, ctx.input_split_sizes, ctx.output_split_sizes
-            ),
-            None,
-            None,
-        )
-
-
-def all_to_all(group, input_, output_split_sizes_=None, input_split_sizes=None):
-    """Wrapper for autograd function"""
-    return _AllToAll.apply(group, input_, output_split_sizes_, input_split_sizes)
-
-
 class EPTokenDispatcher:
     def __init__(
         self, top_k: int, num_experts: int, ep_mesh: Optional[DeviceMesh] = None
@@ -160,11 +109,18 @@ class EPTokenDispatcher:
             tokens_per_expert.view(-1, self.num_local_experts).sum(-1).tolist()
         )
 
-        global_tokens = all_to_all(
-            group=self.ep_mesh.get_group(),
-            input_=permuted_tokens,
-            output_split_sizes_=output_split_sizes,
+        global_tokens = torch.empty(
+            (sum(output_split_sizes), x.size(1)),
+            device=x.device,
+            dtype=x.dtype,
+        )
+
+        global_tokens = F.all_to_all_single(
+            output=global_tokens,
+            input=permuted_tokens,
+            output_split_sizes=output_split_sizes,
             input_split_sizes=input_split_sizes,
+            group=self.ep_mesh.get_group(),
         )
 
         global_token_indices = (
@@ -207,11 +163,12 @@ class EPTokenDispatcher:
             dtype=x.dtype,
         )
 
-        permuted_local_tokens = all_to_all(
-            group=self.ep_mesh.get_group(),
-            input_=unpermuted_global_tokens,
-            output_split_sizes_=self.dispatch_input_split_sizes,
+        permuted_local_tokens = F.all_to_all_single(
+            output=permuted_local_tokens,
+            input=unpermuted_global_tokens,
+            output_split_sizes=self.dispatch_input_split_sizes,
             input_split_sizes=self.dispatch_output_split_sizes,
+            group=self.ep_mesh.get_group(),
         )
 
         unpermuted_local_tokens = torch.zeros_like(permuted_local_tokens)
