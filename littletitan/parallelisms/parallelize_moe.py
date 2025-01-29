@@ -9,7 +9,6 @@ from torch.distributed._composable.fsdp import (
     fully_shard,
 )
 from torch.distributed.tensor import Shard, distribute_tensor
-from torch.distributed.tensor.parallel import parallelize_module
 from torchtitan.config_manager import TORCH_DTYPE_MAP, JobConfig
 from torchtitan.logging import logger
 from torchtitan.parallelisms.parallel_dims import ParallelDims
