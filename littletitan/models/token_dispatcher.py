@@ -110,7 +110,7 @@ class EPTokenDispatcher:
         )
 
         global_tokens = torch.empty(
-            (sum(output_split_sizes), x.size(1)),
+            (sum(output_split_sizes), *permuted_tokens.size()[1:]),
             device=x.device,
             dtype=x.dtype,
         )
@@ -158,7 +158,7 @@ class EPTokenDispatcher:
 
         local_tokens_num = sum(self.dispatch_input_split_sizes)
         permuted_local_tokens = torch.empty(
-            (local_tokens_num, x.size(1)),
+            (local_tokens_num, *unpermuted_global_tokens.size()[1:]),
             device=x.device,
             dtype=x.dtype,
         )

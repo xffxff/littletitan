@@ -64,3 +64,6 @@ selective_ac_option = '2'  # 'int' = ac every positive int layer or 'op', ac bas
 
 [float8]
 enable_float8_linear = false
+
+[comm]
+init_timeout_seconds = 5
